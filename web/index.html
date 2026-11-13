@@ -68,6 +68,13 @@
     .keys { text-align: center; font-size: 0.8rem; color: var(--soft); }
     kbd { border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--paper); font-family: inherit; }
     .log { font-size: 0.75rem; color: var(--soft); white-space: pre-wrap; max-height: 7em; overflow: auto; margin: 0; }
+    .screen { position: fixed; inset: 0; z-index: 50; background: #000; }
+    .screen iframe { width: 100%; height: 100%; border: 0; display: block; }
+    .screen-exit { position: absolute; left: 0; top: 0; width: 64px; height: 64px; border: 0; background: none; padding: 10px; z-index: 2; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .screen-exit span { display: block; width: 10px; height: 10px; border-radius: 50%; background: #666; opacity: 0.7; transition: transform 1s linear; }
+    .screen-exit.running span { background: #2bd47a; }
+    .screen-exit.holding span { transform: scale(3); }
+    #cam { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -94,7 +101,7 @@
 
   <div class="stage" id="stage">
     <canvas id="view" width="640" height="480"></canvas>
-    <div class="hint" id="hint">Start the camera (rear camera, phone facing forward on the robot)</div>
+    <div class="hint" id="hint">Start the camera (screen and front camera facing forward on the robot)</div>
     <div class="state" id="stateTag" hidden></div>
   </div>
 
@@ -106,6 +113,7 @@
   <!-- Auto -->
   <section id="panelAuto" class="card">
     <button class="big" id="btnRun">START</button>
+    <button class="btn" id="btnShow">Show mosaic screen (robot keeps running)</button>
     <div class="calib">
       <span class="swatch" id="swatch"></span>
       <span style="flex:1">Target gray <span class="info" id="refText"></span></span>
@@ -134,6 +142,26 @@
 
   <section class="card">
     <details>
+      <summary>Camera &amp; screen</summary>
+      <div class="checks">
+        <label>Camera
+          <select id="camFacing">
+            <option value="user">Front (screen side)</option>
+            <option value="environment">Rear</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="mirror" /> Flip image left/right</label>
+      </div>
+      <p class="info" style="margin:6px 0 0">Turn on <b>Flip</b> if the robot turns away from the figure instead of toward it.</p>
+      <select class="btn" id="camSelect" style="margin-top:10px;width:100%" hidden></select>
+      <label class="info" style="display:block;margin-top:10px">Mosaic screen address
+        <input id="screenUrl" type="url" style="width:100%;padding:8px;margin-top:4px;border:1px solid var(--rule);border-radius:8px" />
+      </label>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
       <summary>Wheels &amp; log</summary>
       <div class="checks">
         <label><input type="checkbox" id="invL" /> Reverse left wheel</label>
@@ -144,11 +172,17 @@
         <button class="btn" id="btnTestL">Test left ▲</button>
         <button class="btn" id="btnTestR">Test right ▲</button>
       </div>
-      <select class="btn" id="camSelect" style="margin-top:10px;width:100%" hidden></select>
       <pre class="log" id="log"></pre>
     </details>
   </section>
 </main>
+
+<!-- Full-screen mosaic over the app. The app stays in the foreground underneath, so camera,
+     detection and Bluetooth keep running. Hold the dot in the top-left corner for 1 s to exit. -->
+<div class="screen" id="screen" hidden>
+  <iframe id="screenFrame" title="Mosaic" allow="fullscreen"></iframe>
+  <button class="screen-exit" id="screenExit" aria-label="Hold to exit"><span></span></button>
+</div>
 
 <script type="module">
 import { RobotLink } from './js/robot-link.js';
@@ -176,6 +210,7 @@ const defaults = () => ({
   follow: { ...DEFAULT_FOLLOW },
   vision: { ...DEFAULT_VISION, ref: { ...PLA_BASIC_GRAY } },
   invL: false, invR: false, swapLR: false, manualSpeed: 60, showMask: true,
+  camFacing: 'user', mirror: false, screenUrl: 'https://mockingbird-mosaic.vercel.app/mosaic',
 });
 let settings = defaults();
 try {
@@ -221,6 +256,8 @@ $('btnConnect').onclick = async () => {
 const video = document.createElement('video');
 video.playsInline = true;
 video.muted = true;
+video.id = 'cam';
+document.body.append(video); // iOS delivers frames more reliably when the video is in the page
 const proc = document.createElement('canvas');
 const pctx = proc.getContext('2d', { willReadFrequently: true });
 const view = $('view');
@@ -236,7 +273,7 @@ async function startCamera(deviceId) {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: deviceId ? { deviceId: { exact: deviceId }, width: 640, height: 480 } : { facingMode: { ideal: 'environment' }, width: 640, height: 480 },
+      video: deviceId ? { deviceId: { exact: deviceId }, width: 640, height: 480 } : { facingMode: { ideal: settings.camFacing }, width: 640, height: 480 },
     });
   } catch (e) {
     log(`camera: ${e.message}`);
@@ -296,7 +333,7 @@ function frameLoop(t) {
       maskCanvas.width = PROC_W;
       maskCanvas.height = ph;
     }
-    pctx.drawImage(video, 0, 0, PROC_W, ph);
+    drawFrame(pctx, PROC_W, ph);
     const img = pctx.getImageData(0, 0, PROC_W, ph);
     lastDet = detectFigure(img.data, PROC_W, ph, settings.vision, lastDet?.target ?? null, visionBuf);
     if (mode === 'auto' && running) {
@@ -323,10 +360,18 @@ function drawMask(ph) {
   mctx.putImageData(img, 0, 0);
 }
 
+// Camera frame, optionally flipped left/right. Detection and the preview use the same flip, so
+// boxes line up and "right in the picture" always means "turn right".
+function drawFrame(ctx, w, h) {
+  if (settings.mirror) ctx.setTransform(-1, 0, 0, 1, w, 0);
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
 function drawView() {
   const W = view.width;
   const H = view.height;
-  vctx.drawImage(video, 0, 0, W, H);
+  drawFrame(vctx, W, H);
   if (!lastDet) return;
   if (settings.showMask) {
     vctx.imageSmoothingEnabled = false;
@@ -422,7 +467,19 @@ for (const s of SLIDERS) {
     save();
   };
 }
-for (const key of ['invL', 'invR', 'swapLR', 'showMask']) {
+$('camFacing').value = settings.camFacing;
+$('camFacing').onchange = (e) => {
+  settings.camFacing = e.target.value;
+  save();
+  if (stream) startCamera();
+};
+$('screenUrl').value = settings.screenUrl;
+$('screenUrl').onchange = (e) => {
+  settings.screenUrl = e.target.value.trim();
+  $('screenFrame').removeAttribute('src');
+  save();
+};
+for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror']) {
   $(key).checked = settings[key];
   $(key).onchange = () => { settings[key] = $(key).checked; save(); };
 }
@@ -441,6 +498,7 @@ function setRunning(on, why) {
   if (on) ctrl.reset(performance.now());
   $('btnRun').textContent = on ? 'STOP' : 'START';
   $('btnRun').classList.toggle('running', on);
+  $('screenExit').classList.toggle('running', on);
   if (why) log(why);
   showAutoInfo();
 }
@@ -459,7 +517,7 @@ document.querySelectorAll('.tabs button').forEach((b) => {
     setRunning(false);
     manualXY = { x: 0, y: 0 };
     keys.clear();
-    if (!stream) $('hint').textContent = mode === 'manual' ? 'Camera is optional in manual mode' : 'Start the camera (rear camera, phone facing forward on the robot)';
+    if (!stream) $('hint').textContent = mode === 'manual' ? 'Camera is optional in manual mode' : 'Start the camera (screen and front camera facing forward on the robot)';
   };
 });
 
@@ -524,6 +582,31 @@ function emergencyStop(why) {
   keys.clear();
   testCmd = null;
 }
+// ---------- Mosaic screen ----------
+$('btnShow').onclick = () => {
+  const f = $('screenFrame');
+  if (!f.getAttribute('src')) f.src = settings.screenUrl;
+  $('screen').hidden = false;
+};
+let holdTimer = null;
+const exitBtn = $('screenExit');
+exitBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  exitBtn.classList.add('holding');
+  holdTimer = setTimeout(() => {
+    $('screen').hidden = true;
+    exitBtn.classList.remove('holding');
+  }, 1000);
+});
+for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) {
+  exitBtn.addEventListener(ev, () => {
+    clearTimeout(holdTimer);
+    exitBtn.classList.remove('holding');
+  });
+}
+exitBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Leaving the page (home button, other app, other tab) pauses the camera on phones: stop driving.
 document.addEventListener('visibilitychange', () => { if (document.hidden) emergencyStop('page hidden: stopped'); });
 
 // ---------- Send loop ----------
