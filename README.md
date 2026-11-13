@@ -27,15 +27,16 @@
 Mockingbird는 레포 두 개, 배포 두 곳, 서버 하나로 이루어져 있습니다.
 
 ```
- [로봇에 붙은 휴대폰, Bluefy]                                   [큰 모니터]
-  로봇 앱 (GitHub Pages: mockingbird-robot/web/)                 모자이크 (Vercel: /mosaic)
-  ├─ 화면: Vercel /draw 를 전체 화면으로 띄움 ──그림 제출──┐            ▲
-  │        그리는 중이면 앱에 알림 → 로봇 정지              │            │ 5초마다 새 그림 조회
-  ├─ 전면 카메라 → 회색 사람 모형 찾기                      ▼            │
-  └─ 블루투스(BLE) → Arduino UNO R4 WiFi              Supabase (그림·메모 저장)
-                      → 모터 드라이버 → 바퀴 2개              ▲
-                                                             │ 그림 제출
-                                  [관람객 휴대폰] 모자이크의 QR → Vercel /draw
+로봇 휴대폰 (Bluefy, 로봇 앱 = GitHub Pages)
+ ├─ 화면 ── Vercel /draw 를 전체 화면으로 표시
+ │           ├─ 그림 제출 ──▶ Supabase (그림·메모 저장)
+ │           └─ "그리는 중" 신호 ──▶ 로봇 정지
+ ├─ 전면 카메라 ── 회색 사람 모형 찾기
+ └─ 블루투스 ── Arduino UNO R4 WiFi ── 모터 드라이버 ── 바퀴 2개
+
+관람객 휴대폰 ── 모자이크의 QR ── Vercel /draw ── 그림 제출 ──▶ Supabase
+
+큰 모니터 ── Vercel /mosaic ◀── 5초마다 새 그림 조회 ── Supabase
 ```
 
 | 구성 요소 | 레포 | 배포 위치 | 역할 |
