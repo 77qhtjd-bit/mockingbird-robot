@@ -73,6 +73,7 @@
     .screen-exit { position: absolute; left: 0; top: 0; width: 64px; height: 64px; border: 0; background: none; padding: 10px; z-index: 2; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     .screen-exit span { display: block; width: 10px; height: 10px; border-radius: 50%; background: #666; opacity: 0.7; transition: transform 1s linear; }
     .screen-exit.running span { background: #2bd47a; }
+    .screen-exit.running.paused span { background: #f2b33d; }
     .screen-exit.holding span { transform: scale(3); }
     #cam { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; }
     [hidden] { display: none !important; }
@@ -152,6 +153,7 @@
         </label>
         <label><input type="checkbox" id="mirror" /> Flip image left/right</label>
         <label><input type="checkbox" id="autoScreen" /> Show the screen on START</label>
+        <label><input type="checkbox" id="pauseWhileDrawing" /> Stop while someone is drawing</label>
       </div>
       <p class="info" style="margin:6px 0 0">Turn on <b>Flip</b> if the robot turns away from the figure instead of toward it.</p>
       <select class="btn" id="camSelect" style="margin-top:10px;width:100%" hidden></select>
@@ -211,7 +213,7 @@ const defaults = () => ({
   follow: { ...DEFAULT_FOLLOW },
   vision: { ...DEFAULT_VISION, ref: { ...PLA_BASIC_GRAY } },
   invL: false, invR: false, swapLR: false, manualSpeed: 60, showMask: true,
-  camFacing: 'user', mirror: false, screenUrl: 'https://mockingbird-mosaic.vercel.app/draw', autoScreen: true,
+  camFacing: 'user', mirror: false, pauseWhileDrawing: true, screenUrl: 'https://mockingbird-mosaic.vercel.app/draw', autoScreen: true,
 });
 let settings = defaults();
 try {
@@ -230,6 +232,30 @@ let lastDet = null;
 let autoCmd = { left: 0, right: 0 };
 let manualXY = { x: 0, y: 0 };
 let testCmd = null; // wheel test buttons
+
+// ---------- Pause while someone is drawing ----------
+// The drawing page (mockingbird-mosaic /draw, shown in the screen iframe) posts
+// { source: 'mockingbird-draw', type: 'activity' } on every touch / key and
+// { type: 'phase', phase: 'intro' | 'draw' | 'details' | 'done' } when its step changes.
+// Auto driving pauses while a person is mid-drawing (draw / details step) and has touched the
+// screen in the last DRAW_IDLE_MS; it resumes right after they submit, or when they walk away.
+const DRAW_IDLE_MS = 20000;
+let drawPhase = 'intro';
+let drawActivityT = -Infinity;
+let wasPaused = false;
+window.addEventListener('message', (e) => {
+  const frame = document.getElementById('screenFrame');
+  if (!frame || e.source !== frame.contentWindow || e.data?.source !== 'mockingbird-draw') return;
+  if (e.data.type === 'activity') drawActivityT = performance.now();
+  if (e.data.type === 'phase') {
+    drawPhase = e.data.phase;
+    if (drawPhase === 'done' || drawPhase === 'intro') drawActivityT = -Infinity;
+  }
+});
+function pausedForDrawing(now = performance.now()) {
+  return settings.pauseWhileDrawing && !$('screen').hidden &&
+    (drawPhase === 'draw' || drawPhase === 'details') && now - drawActivityT < DRAW_IDLE_MS;
+}
 const keys = new Set();
 
 function log(msg) {
@@ -338,7 +364,17 @@ function frameLoop(t) {
     drawFrame(pctx, PROC_W, ph);
     const img = pctx.getImageData(0, 0, PROC_W, ph);
     lastDet = detectFigure(img.data, PROC_W, ph, settings.vision, lastDet?.target ?? null, visionBuf);
-    if (mode === 'auto' && running) {
+    const paused = mode === 'auto' && running && pausedForDrawing(t);
+    if (paused !== wasPaused) {
+      wasPaused = paused;
+      $('screenExit').classList.toggle('paused', paused);
+      if (running) log(paused ? 'someone is drawing: robot paused' : 'drawing finished: robot resumes');
+      // Start fresh after a pause: the figure may have moved and the search timer should not count it.
+      if (!paused) ctrl.reset(t);
+    }
+    if (paused) {
+      autoCmd = { left: 0, right: 0 };
+    } else if (mode === 'auto' && running) {
       const d = lastDet.found ? { found: true, cx: lastDet.target.cx, size: lastDet.target.size } : { found: false };
       const out = ctrl.update(d, t);
       autoCmd = { left: out.left, right: out.right };
@@ -417,7 +453,7 @@ function showAutoInfo() {
   $('autoInfo').textContent = `${det}${link.rttMs != null ? ` · BLE ${Math.round(link.rttMs)} ms` : ''}`;
   const tag = $('stateTag');
   tag.hidden = mode !== 'auto' || !running;
-  tag.textContent = STATE_TEXT[ctrl.state] ?? ctrl.state;
+  tag.textContent = wasPaused ? 'Paused — someone is drawing' : STATE_TEXT[ctrl.state] ?? ctrl.state;
 }
 
 // ---------- Calibration (tap the figure) ----------
@@ -481,7 +517,7 @@ $('screenUrl').onchange = (e) => {
   $('screenFrame').removeAttribute('src');
   save();
 };
-for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror', 'autoScreen']) {
+for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror', 'autoScreen', 'pauseWhileDrawing']) {
   $(key).checked = settings[key];
   $(key).onchange = () => { settings[key] = $(key).checked; save(); };
 }
