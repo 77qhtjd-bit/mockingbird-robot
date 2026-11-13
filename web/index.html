@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#f4f2ed" />
+  <title>Mockingbird Robot</title>
+  <style>
+    :root {
+      --desk: #f4f2ed; --paper: #fff; --rule: #e2ded5; --ink: #1a1a1a; --soft: #6b6760;
+      --go: #1f7a4d; --stop: #b3261e; --accent: #2f5fd0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      color: var(--ink); background: var(--desk);
+      -webkit-tap-highlight-color: transparent;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; overscroll-behavior: none; }
+    button, select, input { font: inherit; color: inherit; }
+    main { max-width: 640px; margin: 0 auto; padding: max(10px, env(safe-area-inset-top)) 12px 24px; display: flex; flex-direction: column; gap: 10px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    .wordmark { font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-weight: 400; margin-right: 6px; }
+    .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill { font-size: 0.75rem; padding: 3px 8px; border-radius: 999px; background: var(--rule); color: var(--soft); }
+    .pill.on { background: #dcefe4; color: var(--go); }
+
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 0; min-width: 0; }
+    .btn { padding: 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); font-weight: 600; cursor: pointer; }
+    .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .btn.on { background: #e8eefc; border-color: var(--accent); color: var(--accent); }
+    .btn:disabled { opacity: 0.45; cursor: default; }
+    .big { padding: 18px; font-size: 1.25rem; border: 0; border-radius: 12px; color: #fff; background: var(--go); font-weight: 700; cursor: pointer; }
+    .big.running { background: var(--stop); }
+
+    .tabs { display: flex; background: var(--rule); border-radius: 10px; padding: 3px; }
+    .tabs button { flex: 1; border: 0; background: none; padding: 9px; border-radius: 8px; font-weight: 600; color: var(--soft); cursor: pointer; }
+    .tabs button.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+    .stage { position: relative; background: #111; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+    .stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    .stage .hint { position: absolute; inset: 0; display: grid; place-items: center; color: #aaa; font-size: 0.9rem; text-align: center; padding: 16px; pointer-events: none; }
+    .stage .state { position: absolute; left: 8px; top: 8px; background: rgba(0,0,0,0.6); color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; pointer-events: none; }
+    .stage.calibrating { outline: 3px solid var(--accent); }
+
+    .wheels { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 6px 8px; align-items: center; font-size: 0.8rem; color: var(--soft); }
+    .bar { position: relative; height: 12px; background: var(--rule); border-radius: 6px; overflow: hidden; }
+    .bar i { position: absolute; top: 0; bottom: 0; left: 50%; background: var(--ink); }
+    .bar::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--soft); }
+
+    .card { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .calib { display: flex; align-items: center; gap: 8px 10px; font-size: 0.88rem; flex-wrap: wrap; }
+    .calib .btn { padding: 9px 12px; }
+    .swatch { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--rule); flex-shrink: 0; }
+    .info { font-size: 0.82rem; color: var(--soft); font-variant-numeric: tabular-nums; }
+    details summary { cursor: pointer; font-weight: 600; font-size: 0.92rem; }
+    .sliders { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin-top: 10px; font-size: 0.85rem; align-items: center; }
+    .sliders input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--ink); margin: 0 0 6px; }
+    .sliders output { color: var(--soft); font-variant-numeric: tabular-nums; }
+    .checks { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.85rem; margin-top: 6px; }
+    .checks label { display: flex; align-items: center; gap: 6px; }
+
+    .pad { position: relative; width: min(78vw, 280px); aspect-ratio: 1; margin: 6px auto; border-radius: 50%; background: var(--paper); border: 1px solid var(--rule); touch-action: none; cursor: grab; }
+    .pad::before, .pad::after { content: ''; position: absolute; background: var(--rule); }
+    .pad::before { left: 50%; top: 10%; bottom: 10%; width: 1px; }
+    .pad::after { top: 50%; left: 10%; right: 10%; height: 1px; }
+    .knob { position: absolute; left: 50%; top: 50%; width: 34%; aspect-ratio: 1; border-radius: 50%; background: var(--ink); transform: translate(-50%, -50%); z-index: 1; pointer-events: none; }
+    .keys { text-align: center; font-size: 0.8rem; color: var(--soft); }
+    kbd { border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--paper); font-family: inherit; }
+    .log { font-size: 0.75rem; color: var(--soft); white-space: pre-wrap; max-height: 7em; overflow: auto; margin: 0; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="wordmark">Mockingbird</span>Robot</h1>
+    <div class="pills">
+      <span class="pill" id="pillRobot">Robot: not connected</span>
+      <span class="pill" id="pillCam">Camera off</span>
+    </div>
+  </header>
+
+  <div class="row">
+    <button class="btn primary" id="btnConnect">Connect robot</button>
+    <button class="btn" id="btnCamera">Start camera</button>
+  </div>
+  <p class="info" id="bleNote" hidden>This browser has no Web Bluetooth. On iPhone use the Bluefy app; on Android or a laptop use Chrome.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="on" data-mode="auto" role="tab">Auto: find the figure</button>
+    <button data-mode="manual" role="tab">Manual drive</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="view" width="640" height="480"></canvas>
+    <div class="hint" id="hint">Start the camera (rear camera, phone facing forward on the robot)</div>
+    <div class="state" id="stateTag" hidden></div>
+  </div>
+
+  <div class="wheels">
+    <span>L</span><div class="bar"><i id="barL"></i></div>
+    <span>R</span><div class="bar"><i id="barR"></i></div>
+  </div>
+
+  <!-- Auto -->
+  <section id="panelAuto" class="card">
+    <button class="big" id="btnRun">START</button>
+    <div class="calib">
+      <span class="swatch" id="swatch"></span>
+      <span style="flex:1">Target gray <span class="info" id="refText"></span></span>
+      <button class="btn" id="btnCalib">Calibrate</button>
+      <button class="btn" id="btnResetRef" title="Back to PLA Basic Gray">Reset</button>
+    </div>
+    <p class="info" id="autoInfo">–</p>
+    <details>
+      <summary>Settings</summary>
+      <div class="sliders" id="sliders"></div>
+      <div class="checks">
+        <label><input type="checkbox" id="showMask" checked /> Show matched pixels</label>
+      </div>
+    </details>
+  </section>
+
+  <!-- Manual -->
+  <section id="panelManual" class="card" hidden>
+    <div class="pad" id="pad"><div class="knob" id="knob"></div></div>
+    <p class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys · <kbd>Space</kbd> stop</p>
+    <div class="sliders">
+      <span>Manual speed</span><output id="manualSpeedOut"></output>
+      <input type="range" id="manualSpeed" min="20" max="100" step="5" />
+    </div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Wheels &amp; log</summary>
+      <div class="checks">
+        <label><input type="checkbox" id="invL" /> Reverse left wheel</label>
+        <label><input type="checkbox" id="invR" /> Reverse right wheel</label>
+        <label><input type="checkbox" id="swapLR" /> Swap left/right</label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnTestL">Test left ▲</button>
+        <button class="btn" id="btnTestR">Test right ▲</button>
+      </div>
+      <select class="btn" id="camSelect" style="margin-top:10px;width:100%" hidden></select>
+      <pre class="log" id="log"></pre>
+    </details>
+  </section>
+</main>
+
+<script type="module">
+import { RobotLink } from './js/robot-link.js';
+import { detectFigure, sampleColor, PLA_BASIC_GRAY, DEFAULT_VISION } from './js/vision.js';
+import { FollowController, DEFAULT_FOLLOW, manualDrive, State } from './js/follow.js';
+
+const $ = (id) => document.getElementById(id);
+const PROC_W = 160; // detection runs on a 160 px wide copy of the frame
+const PROC_MS = 66; // ~15 detections per second
+const SEND_MS = 50; // 20 commands per second (board watchdog: 400 ms)
+
+// ---------- Settings (saved in this browser) ----------
+const SLIDERS = [
+  { group: 'follow', key: 'maxSpeed', label: 'Max forward speed', min: 20, max: 100, step: 5, fmt: (v) => `${v}%` },
+  { group: 'follow', key: 'turnSpeed', label: 'Steering strength', min: 10, max: 80, step: 5, fmt: (v) => `${v}%` },
+  { group: 'follow', key: 'searchSpeed', label: 'Search spin speed', min: 15, max: 80, step: 5, fmt: (v) => `${v}%` },
+  { group: 'follow', key: 'stopSize', label: 'Stop when figure fills (height)', min: 0.2, max: 0.95, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
+  { group: 'vision', key: 'lumTol', label: 'Brightness tolerance', min: 10, max: 80, step: 2 },
+  { group: 'vision', key: 'chromaTol', label: 'Tint tolerance', min: 4, max: 40, step: 1 },
+  { group: 'vision', key: 'targetAspect', label: 'Figure shape (height ÷ width)', min: 0.8, max: 5, step: 0.1, fmt: (v) => v.toFixed(1) },
+  { group: 'vision', key: 'minAreaFrac', label: 'Smallest figure (of frame)', min: 0.0005, max: 0.02, step: 0.0005, fmt: (v) => `${(v * 100).toFixed(2)}%` },
+];
+const STORE = 'mbrobot.settings.v1';
+const defaults = () => ({
+  follow: { ...DEFAULT_FOLLOW },
+  vision: { ...DEFAULT_VISION, ref: { ...PLA_BASIC_GRAY } },
+  invL: false, invR: false, swapLR: false, manualSpeed: 60, showMask: true,
+});
+let settings = defaults();
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+  if (saved) settings = { ...settings, ...saved, follow: { ...settings.follow, ...saved.follow }, vision: { ...settings.vision, ...saved.vision } };
+} catch {}
+const save = () => { try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch {} };
+
+// ---------- State ----------
+const link = new RobotLink({ onLog: log, onStatus: robotStatus });
+const ctrl = new FollowController(settings.follow);
+let mode = 'auto';
+let running = false; // auto mode driving
+let lastDet = null;
+let autoCmd = { left: 0, right: 0 };
+let manualXY = { x: 0, y: 0 };
+let testCmd = null; // wheel test buttons
+const keys = new Set();
+
+function log(msg) {
+  const el = $('log');
+  el.textContent = `${new Date().toLocaleTimeString()} ${msg}\n${el.textContent}`.slice(0, 3000);
+}
+function robotStatus(text, ok) {
+  $('pillRobot').textContent = `Robot: ${text}`;
+  $('pillRobot').classList.toggle('on', ok);
+  $('btnConnect').textContent = ok ? 'Disconnect' : 'Connect robot';
+}
+
+// ---------- Robot connection ----------
+if (!RobotLink.supported) {
+  $('bleNote').hidden = false;
+  $('btnConnect').disabled = true;
+} else {
+  link.restore().catch(() => {});
+}
+$('btnConnect').onclick = async () => {
+  if (link.connected) return link.disconnect();
+  try { await link.choose(); } catch (e) { log(`choose: ${e.message}`); }
+};
+
+// ---------- Camera ----------
+const video = document.createElement('video');
+video.playsInline = true;
+video.muted = true;
+const proc = document.createElement('canvas');
+const pctx = proc.getContext('2d', { willReadFrequently: true });
+const view = $('view');
+const vctx = view.getContext('2d');
+const maskCanvas = document.createElement('canvas');
+const mctx = maskCanvas.getContext('2d');
+let stream = null;
+let wakeLock = null;
+const visionBuf = {};
+
+async function startCamera(deviceId) {
+  stopCamera();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: deviceId ? { deviceId: { exact: deviceId }, width: 640, height: 480 } : { facingMode: { ideal: 'environment' }, width: 640, height: 480 },
+    });
+  } catch (e) {
+    log(`camera: ${e.message}`);
+    $('hint').textContent = `Camera not available: ${e.message}`;
+    return;
+  }
+  video.srcObject = stream;
+  await video.play();
+  $('hint').hidden = true;
+  $('pillCam').textContent = 'Camera on';
+  $('pillCam').classList.add('on');
+  $('btnCamera').textContent = 'Stop camera';
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+  listCameras(stream.getVideoTracks()[0]?.getSettings().deviceId);
+}
+function stopCamera() {
+  if (running) setRunning(false, 'camera stopped: auto stopped');
+  stream?.getTracks().forEach((t) => t.stop());
+  vctx.clearRect(0, 0, view.width, view.height);
+  stream = null;
+  lastDet = null;
+  $('hint').hidden = false;
+  $('pillCam').textContent = 'Camera off';
+  $('pillCam').classList.remove('on');
+  $('btnCamera').textContent = 'Start camera';
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+async function listCameras(currentId) {
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  const sel = $('camSelect');
+  sel.hidden = cams.length < 2;
+  sel.innerHTML = cams.map((c, i) => `<option value="${c.deviceId}">${c.label || `Camera ${i + 1}`}</option>`).join('');
+  if (currentId) sel.value = currentId;
+}
+$('camSelect').onchange = (e) => startCamera(e.target.value);
+$('btnCamera').onclick = () => (stream ? stopCamera() : startCamera());
+
+// ---------- Detection loop ----------
+let lastProcT = 0;
+function frameLoop(t) {
+  requestAnimationFrame(frameLoop);
+  if (!stream || video.readyState < 2) return;
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (view.width !== vw || view.height !== vh) {
+    view.width = vw;
+    view.height = vh;
+    $('stage').style.aspectRatio = `${vw} / ${vh}`;
+  }
+  if (t - lastProcT >= PROC_MS) {
+    lastProcT = t;
+    const ph = Math.round((PROC_W * vh) / vw);
+    if (proc.width !== PROC_W || proc.height !== ph) {
+      proc.width = PROC_W;
+      proc.height = ph;
+      maskCanvas.width = PROC_W;
+      maskCanvas.height = ph;
+    }
+    pctx.drawImage(video, 0, 0, PROC_W, ph);
+    const img = pctx.getImageData(0, 0, PROC_W, ph);
+    lastDet = detectFigure(img.data, PROC_W, ph, settings.vision, lastDet?.target ?? null, visionBuf);
+    if (mode === 'auto' && running) {
+      const d = lastDet.found ? { found: true, cx: lastDet.target.cx, size: lastDet.target.size } : { found: false };
+      const out = ctrl.update(d, t);
+      autoCmd = { left: out.left, right: out.right };
+      if (out.state === State.GAVE_UP) setRunning(false, 'Search timed out — figure not found');
+    }
+    drawMask(ph);
+    showAutoInfo();
+  }
+  drawView();
+}
+requestAnimationFrame(frameLoop);
+
+function drawMask(ph) {
+  if (!settings.showMask || !lastDet) return;
+  const img = mctx.createImageData(PROC_W, ph);
+  const m = lastDet.mask;
+  for (let i = 0; i < m.length; i++) {
+    if (!m[i]) continue;
+    img.data[i * 4] = 60; img.data[i * 4 + 1] = 200; img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = 120;
+  }
+  mctx.putImageData(img, 0, 0);
+}
+
+function drawView() {
+  const W = view.width;
+  const H = view.height;
+  vctx.drawImage(video, 0, 0, W, H);
+  if (!lastDet) return;
+  if (settings.showMask) {
+    vctx.imageSmoothingEnabled = false;
+    vctx.drawImage(maskCanvas, 0, 0, W, H);
+    vctx.imageSmoothingEnabled = true;
+  }
+  const lw = Math.max(2, W / 200);
+  for (const c of lastDet.candidates.slice(1, 5)) {
+    vctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    vctx.lineWidth = lw;
+    vctx.strokeRect(c.box.x * W, c.box.y * H, c.box.w * W, c.box.h * H);
+  }
+  const tg = lastDet.target;
+  if (tg) {
+    vctx.strokeStyle = '#ffd400';
+    vctx.lineWidth = lw * 2;
+    vctx.strokeRect(tg.box.x * W, tg.box.y * H, tg.box.w * W, tg.box.h * H);
+    vctx.beginPath();
+    vctx.arc(tg.cx * W, tg.cy * H, lw * 3, 0, Math.PI * 2);
+    vctx.fillStyle = '#ffd400';
+    vctx.fill();
+  }
+  // center line: the robot drives straight when the target dot is on it
+  vctx.strokeStyle = 'rgba(255,212,0,0.35)';
+  vctx.setLineDash([lw * 4, lw * 4]);
+  vctx.lineWidth = lw;
+  vctx.beginPath();
+  vctx.moveTo(W / 2, 0);
+  vctx.lineTo(W / 2, H);
+  vctx.stroke();
+  vctx.setLineDash([]);
+}
+
+const STATE_TEXT = {
+  [State.SEARCH]: 'Searching…', [State.APPROACH]: 'Approaching', [State.LOST]: 'Lost — waiting',
+  [State.ARRIVED]: 'Arrived ✓', [State.GAVE_UP]: 'Not found',
+};
+function showAutoInfo() {
+  const tg = lastDet?.target;
+  const det = tg ? `figure at ${Math.round((tg.cx * 2 - 1) * 100)}% (←−/+→), height ${Math.round(tg.size * 100)}% of frame` : 'no figure in view';
+  $('autoInfo').textContent = `${det}${link.rttMs != null ? ` · BLE ${Math.round(link.rttMs)} ms` : ''}`;
+  const tag = $('stateTag');
+  tag.hidden = mode !== 'auto' || !running;
+  tag.textContent = STATE_TEXT[ctrl.state] ?? ctrl.state;
+}
+
+// ---------- Calibration (tap the figure) ----------
+let calibrating = false;
+$('btnCalib').onclick = () => {
+  calibrating = !calibrating;
+  $('btnCalib').classList.toggle('on', calibrating);
+  $('btnCalib').textContent = calibrating ? 'Tap the figure' : 'Calibrate';
+  $('stage').classList.toggle('calibrating', calibrating);
+};
+view.addEventListener('pointerdown', (e) => {
+  if (!calibrating || !stream || !proc.width) return;
+  const r = view.getBoundingClientRect();
+  const x = Math.round(((e.clientX - r.left) / r.width) * proc.width);
+  const y = Math.round(((e.clientY - r.top) / r.height) * proc.height);
+  const img = pctx.getImageData(0, 0, proc.width, proc.height);
+  settings.vision.ref = sampleColor(img.data, proc.width, proc.height, x, y, 3);
+  save();
+  showRef();
+  log(`calibrated gray: rgb(${settings.vision.ref.r}, ${settings.vision.ref.g}, ${settings.vision.ref.b})`);
+  $('btnCalib').click();
+});
+$('btnResetRef').onclick = () => {
+  settings.vision.ref = { ...PLA_BASIC_GRAY };
+  save();
+  showRef();
+};
+function showRef() {
+  const { r, g, b } = settings.vision.ref;
+  $('swatch').style.background = `rgb(${r},${g},${b})`;
+  $('refText').textContent = `rgb(${r}, ${g}, ${b})`;
+}
+showRef();
+
+// ---------- Settings UI ----------
+const sl = $('sliders');
+for (const s of SLIDERS) {
+  const id = `s_${s.key}`;
+  const fmt = s.fmt ?? ((v) => String(v));
+  sl.insertAdjacentHTML('beforeend', `<label for="${id}">${s.label}</label><output id="${id}_o"></output><input type="range" id="${id}" min="${s.min}" max="${s.max}" step="${s.step}">`);
+  const input = $(id);
+  input.value = settings[s.group][s.key];
+  $(`${id}_o`).textContent = fmt(Number(input.value));
+  input.oninput = () => {
+    const v = Number(input.value);
+    settings[s.group][s.key] = v;
+    $(`${id}_o`).textContent = fmt(v);
+    if (s.group === 'follow') ctrl.setParams({ [s.key]: v });
+    save();
+  };
+}
+for (const key of ['invL', 'invR', 'swapLR', 'showMask']) {
+  $(key).checked = settings[key];
+  $(key).onchange = () => { settings[key] = $(key).checked; save(); };
+}
+$('manualSpeed').value = settings.manualSpeed;
+$('manualSpeedOut').textContent = `${settings.manualSpeed}%`;
+$('manualSpeed').oninput = (e) => {
+  settings.manualSpeed = Number(e.target.value);
+  $('manualSpeedOut').textContent = `${settings.manualSpeed}%`;
+  save();
+};
+
+// ---------- Auto start / stop ----------
+function setRunning(on, why) {
+  running = on;
+  autoCmd = { left: 0, right: 0 };
+  if (on) ctrl.reset(performance.now());
+  $('btnRun').textContent = on ? 'STOP' : 'START';
+  $('btnRun').classList.toggle('running', on);
+  if (why) log(why);
+  showAutoInfo();
+}
+$('btnRun').onclick = () => {
+  if (!running && !stream) return log('start the camera first');
+  setRunning(!running);
+};
+
+// ---------- Mode tabs ----------
+document.querySelectorAll('.tabs button').forEach((b) => {
+  b.onclick = () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    $('panelAuto').hidden = mode !== 'auto';
+    $('panelManual').hidden = mode !== 'manual';
+    setRunning(false);
+    manualXY = { x: 0, y: 0 };
+    keys.clear();
+    if (!stream) $('hint').textContent = mode === 'manual' ? 'Camera is optional in manual mode' : 'Start the camera (rear camera, phone facing forward on the robot)';
+  };
+});
+
+// ---------- Manual: joystick + keyboard ----------
+const pad = $('pad');
+const knob = $('knob');
+let padPointer = null;
+function setPad(e) {
+  const r = pad.getBoundingClientRect();
+  let x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  let y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+  const m = Math.hypot(x, y);
+  if (m > 1) { x /= m; y /= m; }
+  manualXY = { x, y };
+  knob.style.left = `${50 + x * 50}%`;
+  knob.style.top = `${50 - y * 50}%`;
+}
+function releasePad() {
+  padPointer = null;
+  manualXY = { x: 0, y: 0 };
+  knob.style.left = knob.style.top = '50%';
+}
+pad.addEventListener('pointerdown', (e) => { padPointer = e.pointerId; pad.setPointerCapture(e.pointerId); setPad(e); });
+pad.addEventListener('pointermove', (e) => { if (e.pointerId === padPointer) setPad(e); });
+pad.addEventListener('pointerup', releasePad);
+pad.addEventListener('pointercancel', releasePad);
+
+const KEYMAP = { w: 'f', arrowup: 'f', s: 'b', arrowdown: 'b', a: 'l', arrowleft: 'l', d: 'r', arrowright: 'r' };
+window.addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, select, textarea')) return;
+  if (e.key === ' ') {
+    e.preventDefault();
+    emergencyStop('Space pressed');
+    return;
+  }
+  const k = KEYMAP[e.key.toLowerCase()];
+  if (k && mode === 'manual') { keys.add(k); e.preventDefault(); }
+});
+window.addEventListener('keyup', (e) => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys.delete(k); });
+window.addEventListener('blur', () => keys.clear());
+
+function manualCommand() {
+  let { x, y } = manualXY;
+  if (keys.size) {
+    x = (keys.has('r') ? 1 : 0) - (keys.has('l') ? 1 : 0);
+    y = (keys.has('f') ? 1 : 0) - (keys.has('b') ? 1 : 0);
+  }
+  return manualDrive(x, y, settings.manualSpeed);
+}
+
+// ---------- Wheel test buttons (hold) ----------
+for (const [id, cmd] of [['btnTestL', { left: 50, right: 0 }], ['btnTestR', { left: 0, right: 50 }]]) {
+  const b = $(id);
+  b.addEventListener('pointerdown', () => { testCmd = cmd; });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => { testCmd = null; });
+}
+
+// ---------- Safety ----------
+function emergencyStop(why) {
+  setRunning(false, why);
+  releasePad();
+  keys.clear();
+  testCmd = null;
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) emergencyStop('page hidden: stopped'); });
+
+// ---------- Send loop ----------
+function currentCommand() {
+  if (testCmd) return testCmd;
+  if (mode === 'manual') return manualCommand();
+  // No fresh detection for 500 ms (camera stalled or stopped): do not keep driving.
+  return running && performance.now() - lastProcT < 500 ? autoCmd : { left: 0, right: 0 };
+}
+// Test buttons go through the same mapping, so they show whether the settings are right.
+function toWheels({ left, right }) {
+  if (settings.swapLR) [left, right] = [right, left];
+  if (settings.invL) left = -left;
+  if (settings.invR) right = -right;
+  return { left, right };
+}
+function showBars({ left, right }) {
+  for (const [el, v] of [[$('barL'), left], [$('barR'), right]]) {
+    el.style.left = v >= 0 ? '50%' : `${50 + v / 2}%`;
+    el.style.width = `${Math.abs(v) / 2}%`;
+    el.style.background = v >= 0 ? 'var(--go)' : 'var(--stop)';
+  }
+}
+setInterval(() => {
+  const cmd = currentCommand();
+  showBars(cmd);
+  const w = toWheels(cmd);
+  link.send(w.left, w.right);
+}, SEND_MS);
+</script>
+</body>
+</html>

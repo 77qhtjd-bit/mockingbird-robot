@@ -1,0 +1,109 @@
+# Mockingbird Robot: 회색 사람 모형 찾아가기
+
+로봇 위에 올린 휴대폰이 카메라로 **회색 사람 모형(Bambu Lab PLA Basic – Gray)** 을 찾고,
+모형 앞까지 바퀴로 다가가 멈추는 시스템입니다. 같은 웹페이지에서 **수동 조종**(조이스틱/키보드)도 할 수 있습니다.
+높이·기울기 서보(D6, D7)는 아직 쓰지 않습니다.
+
+구조는 [haptic-lane-guide](https://github.com/77qhtjd-bit/haptic-lane-guide)와 같습니다.
+계산은 모두 휴대폰 브라우저에서 하고, 아두이노는 받은 바퀴 속도대로 모터만 돌립니다.
+
+```
+휴대폰 브라우저 (로봇 앞쪽에 고정, 후면 카메라)                  Arduino UNO R4 WiFi
+카메라 640x480 → 160px로 축소 → 회색 영역 찾기 → 추적 상태기계 → 좌/우 속도 ──BLE──> 모터 드라이버 → TT 모터 2개
+                                                                    <── ACK ───  400 ms 동안 명령 없으면 정지
+```
+
+| 파일 | 내용 |
+|---|---|
+| `web/index.html` | 앱 화면: 로봇 연결, 카메라, **Auto**(모형 찾아가기) / **Manual**(직접 조종) |
+| `web/js/vision.js` | 회색 모형 검출 (색 마스크 → 덩어리 → 모양·크기 점수) |
+| `web/js/follow.js` | 찾기 → 다가가기 → 도착 상태기계, 수동 조종 계산 |
+| `web/js/robot-link.js` | Web Bluetooth 연결 (자동 재연결, 지연 시간 측정) |
+| `firmware/robot_drive_ble/` | R4 WiFi 스케치 (BLE 수신, 모터 구동, 워치독, 시리얼 테스트) |
+| `web/test/` | 검출·제어·패킷 단위 테스트 (`npm test`) |
+
+## 1. 배선
+
+| 장치 | 드라이버 연결 | R4 WiFi 핀 |
+|---|---|---|
+| 우측 TT 모터 | A01, A02 | — |
+| 우측 모터 제어 | AIN1, AIN2 | **D2, D3** |
+| 좌측 TT 모터 | B01, B02 | — |
+| 좌측 모터 제어 | BIN1, BIN2 | **D4, D5** |
+| 높이 조절 서보 | — | D6 (아직 사용 안 함) |
+| 기울기 조절 서보 | — | D7 (아직 사용 안 함) |
+
+- 드라이버는 AIN1/AIN2/BIN1/BIN2 입력 두 개로 방향과 속도를 정하는 방식(DRV8833 등)을 가정했습니다.
+  R4에서 D2, D4는 PWM이 안 되므로 **D3, D5(PWM)로 속도를, D2, D4로 방향을** 정합니다.
+- TB6612FNG처럼 PWMA/PWMB, STBY 핀이 따로 있는 드라이버라면 이 세 핀을 VCC(High)에 연결하세요. 그러면 같은 코드로 동작합니다.
+- 모터 전원(배터리)은 드라이버 VM에, **드라이버 GND와 아두이노 GND는 반드시 연결**합니다.
+
+## 2. 아두이노 업로드
+
+1. Arduino IDE 2 → Boards Manager에서 **Arduino UNO R4 Boards** 설치 → 보드 **Arduino UNO R4 WiFi** 선택.
+2. Library Manager에서 **ArduinoBLE** 설치 (`Arduino_LED_Matrix`는 기본 포함).
+3. `firmware/robot_drive_ble/robot_drive_ble.ino`를 열고 Upload.
+4. 시리얼 모니터(9600)에 `Advertising as MockingbirdBot`이 보이면 정상입니다.
+   `BLE.begin() failed`가 나오면 **Tools → Firmware Updater**로 통신 모듈 펌웨어를 업데이트하세요.
+
+**배선 확인 (휴대폰 없이)**: 시리얼 모니터 줄 끝을 *No line ending*으로 두고 키를 보냅니다.
+`w` 전진, `s` 후진, `a` 왼쪽 제자리 회전, `d` 오른쪽 제자리 회전, `l` 왼쪽 바퀴만, `r` 오른쪽 바퀴만, 스페이스 정지.
+각 키는 0.7초 동안만 돕니다. `w`에서 두 바퀴가 모두 앞으로 가는지 먼저 확인하세요.
+방향이 반대인 바퀴는 모터 선 두 가닥을 바꾸거나, 웹 화면의 **Wheels & log → Reverse left/right wheel**을 켜면 됩니다.
+
+LED 매트릭스: 아래 줄 점선 = 연결 대기, 위아래 점선 = 연결됨(명령 없음),
+왼쪽/오른쪽 막대 = 각 바퀴 속도 (가운데에서 위로 = 전진, 아래로 = 후진).
+
+## 3. 웹 앱 실행
+
+카메라와 Bluetooth는 HTTPS에서만 동작해서 GitHub Pages로 올려 둡니다.
+**앱 주소: https://77qhtjd-bit.github.io/mockingbird-robot/web/**
+
+| 기기 | 브라우저 |
+|---|---|
+| iPhone | **Bluefy** 앱 (Safari는 Web Bluetooth 미지원) |
+| Android | Chrome |
+| 노트북 (수동 조종용) | Chrome / Edge |
+
+### Auto: 회색 모형 찾아가기
+1. 휴대폰을 로봇 앞쪽에 **후면 카메라가 정면을 보도록** 고정합니다.
+2. **Connect robot** → `MockingbirdBot` 선택 (한 번만 하면 이후 자동 재연결).
+3. **Start camera**.
+4. **Calibrate**를 누르고 화면에서 모형을 탭합니다. 지금 조명에서 모형이 보이는 회색이 기준색이 됩니다.
+   파란색으로 칠해진 부분이 "회색으로 인식된 곳", 노란 상자가 "목표로 고른 모형"입니다.
+5. **START**. 로봇이 제자리에서 조금씩 돌며 모형을 찾고(Searching), 찾으면 방향을 맞추며 다가가고(Approaching),
+   모형이 화면 높이의 60%가 되면 멈춥니다(Arrived). 모형을 멀리 옮기면 다시 다가갑니다.
+   40초 동안 못 찾으면 스스로 멈춥니다.
+6. **STOP** 버튼이나 키보드 **스페이스**로 언제든 정지. 페이지를 벗어나거나 연결이 끊겨도 0.4초 안에 멈춥니다.
+
+### Manual: 직접 조종
+**Manual drive** 탭에서 원형 조이스틱을 드래그하거나 노트북에서 **W A S D / 방향키**를 누릅니다. 손을 떼면 멈춥니다.
+수동 조종에는 카메라가 필요 없습니다. 노트북 Chrome에서 바로 로봇에 연결해 조종할 수 있습니다.
+BLE는 한 번에 한 기기만 연결되므로, 휴대폰이 연결되어 있으면 노트북에서는 연결되지 않습니다.
+
+## 4. 잘 안 될 때 (Settings에서 조정, 값은 브라우저에 저장됨)
+
+| 증상 | 조정 |
+|---|---|
+| 모형이 파랗게 칠해지지 않음 | 다시 **Calibrate**. 그래도 부족하면 *Brightness tolerance* / *Tint tolerance* 올리기 |
+| 바닥·벽·그림자까지 파랗게 칠해짐 | *Tint tolerance*를 낮추고 다시 Calibrate. 회색 바닥 위라면 밝은/색 있는 바닥에서 시험 |
+| 모형이 칠해지는데 노란 상자가 안 생김 | 모형이 화면에서 납작하게 보이는 경우: *Figure shape*를 실제 비율(세로÷가로)에 맞추기. 작으면 *Smallest figure* 낮추기 |
+| 너무 멀리서/가까이서 멈춤 | *Stop when figure fills* 조정 |
+| 좌우로 흔들리며 감 | *Steering strength* 낮추기 |
+| 바퀴가 웅- 소리만 나고 안 돎 | 스케치의 `MIN_DUTY`(기본 90)를 올리기 |
+| 전진했는데 반대로 감 / 좌우가 바뀜 | **Wheels & log**에서 Reverse / Swap. *Test left/right ▲*를 누르고 있으면 해당 바퀴가 앞으로 돌아야 정상 |
+
+검출은 "회색이면서 세로로 긴 덩어리"를 찾는 단순한 방식이라, 회색 바닥·콘크리트·그림자가 많은 곳에서는 헷갈릴 수 있습니다.
+시연 장소의 바닥과 배경 색이 회색과 다르면 가장 안정적입니다.
+
+## 개발
+
+```bash
+npm test                 # 단위 테스트 (Node 20+)
+python -m http.server 8000   # http://localhost:8000/web/ (localhost는 HTTPS 없이도 카메라·BLE 허용)
+```
+
+BLE 프로토콜: 서비스 `c5831c08-81a7-4b41-bc27-ce21e6c8a9d0`, 이름 `MockingbirdBot`.
+명령 특성 `ae8acab1-…` (write without response, 약 20 Hz) 4바이트 `[seq lo, seq hi, left, right]`,
+left/right는 -100..100 (%) int8, + = 전진. ACK 특성 `d55045a0-…` (notify)는 seq를 그대로 돌려줍니다.
+보드는 0이 아닌 속도를 `MIN_DUTY..255`로 바꾸고, 가속은 약 0.16초에 걸쳐 부드럽게 올립니다. 정지는 즉시 합니다.
