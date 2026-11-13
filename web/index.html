@@ -113,7 +113,7 @@
   <!-- Auto -->
   <section id="panelAuto" class="card">
     <button class="big" id="btnRun">START</button>
-    <button class="btn" id="btnShow">Show mosaic screen (robot keeps running)</button>
+    <button class="btn" id="btnShow">Show drawing screen (robot keeps running)</button>
     <div class="calib">
       <span class="swatch" id="swatch"></span>
       <span style="flex:1">Target gray <span class="info" id="refText"></span></span>
@@ -151,10 +151,11 @@
           </select>
         </label>
         <label><input type="checkbox" id="mirror" /> Flip image left/right</label>
+        <label><input type="checkbox" id="autoScreen" /> Show the screen on START</label>
       </div>
       <p class="info" style="margin:6px 0 0">Turn on <b>Flip</b> if the robot turns away from the figure instead of toward it.</p>
       <select class="btn" id="camSelect" style="margin-top:10px;width:100%" hidden></select>
-      <label class="info" style="display:block;margin-top:10px">Mosaic screen address
+      <label class="info" style="display:block;margin-top:10px">Screen address (shown full screen over the app)
         <input id="screenUrl" type="url" style="width:100%;padding:8px;margin-top:4px;border:1px solid var(--rule);border-radius:8px" />
       </label>
     </details>
@@ -180,7 +181,7 @@
 <!-- Full-screen mosaic over the app. The app stays in the foreground underneath, so camera,
      detection and Bluetooth keep running. Hold the dot in the top-left corner for 1 s to exit. -->
 <div class="screen" id="screen" hidden>
-  <iframe id="screenFrame" title="Mosaic" allow="fullscreen"></iframe>
+  <iframe id="screenFrame" title="Drawing screen" allow="fullscreen"></iframe>
   <button class="screen-exit" id="screenExit" aria-label="Hold to exit"><span></span></button>
 </div>
 
@@ -210,12 +211,13 @@ const defaults = () => ({
   follow: { ...DEFAULT_FOLLOW },
   vision: { ...DEFAULT_VISION, ref: { ...PLA_BASIC_GRAY } },
   invL: false, invR: false, swapLR: false, manualSpeed: 60, showMask: true,
-  camFacing: 'user', mirror: false, screenUrl: 'https://mockingbird-mosaic.vercel.app/mosaic',
+  camFacing: 'user', mirror: false, screenUrl: 'https://mockingbird-mosaic.vercel.app/draw', autoScreen: true,
 });
 let settings = defaults();
 try {
   const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
   if (saved) settings = { ...settings, ...saved, follow: { ...settings.follow, ...saved.follow }, vision: { ...settings.vision, ...saved.vision } };
+  if (settings.screenUrl === 'https://mockingbird-mosaic.vercel.app/mosaic') settings.screenUrl = defaults().screenUrl; // old default
 } catch {}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch {} };
 
@@ -479,7 +481,7 @@ $('screenUrl').onchange = (e) => {
   $('screenFrame').removeAttribute('src');
   save();
 };
-for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror']) {
+for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror', 'autoScreen']) {
   $(key).checked = settings[key];
   $(key).onchange = () => { settings[key] = $(key).checked; save(); };
 }
@@ -505,6 +507,7 @@ function setRunning(on, why) {
 $('btnRun').onclick = () => {
   if (!running && !stream) return log('start the camera first');
   setRunning(!running);
+  if (running && settings.autoScreen) showScreen();
 };
 
 // ---------- Mode tabs ----------
@@ -583,11 +586,13 @@ function emergencyStop(why) {
   testCmd = null;
 }
 // ---------- Mosaic screen ----------
-$('btnShow').onclick = () => {
+function showScreen() {
   const f = $('screenFrame');
   if (!f.getAttribute('src')) f.src = settings.screenUrl;
   $('screen').hidden = false;
-};
+  document.documentElement.style.overflow = 'hidden'; // no scrolling the app behind the screen
+}
+$('btnShow').onclick = showScreen;
 let holdTimer = null;
 const exitBtn = $('screenExit');
 exitBtn.addEventListener('pointerdown', (e) => {
@@ -595,6 +600,7 @@ exitBtn.addEventListener('pointerdown', (e) => {
   exitBtn.classList.add('holding');
   holdTimer = setTimeout(() => {
     $('screen').hidden = true;
+    document.documentElement.style.overflow = '';
     exitBtn.classList.remove('holding');
   }, 1000);
 });
