@@ -22,6 +22,42 @@
 | `firmware/robot_drive_ble/` | R4 WiFi 스케치 (BLE 수신, 모터 구동, 워치독, 시리얼 테스트) |
 | `web/test/` | 검출·제어·패킷 단위 테스트 (`npm test`) |
 
+## 전체 시스템 구성
+
+Mockingbird는 레포 두 개, 배포 두 곳, 서버 하나로 이루어져 있습니다.
+
+```
+ [로봇에 붙은 휴대폰, Bluefy]                                   [큰 모니터]
+  로봇 앱 (GitHub Pages: mockingbird-robot/web/)                 모자이크 (Vercel: /mosaic)
+  ├─ 화면: Vercel /draw 를 전체 화면으로 띄움 ──그림 제출──┐            ▲
+  │        그리는 중이면 앱에 알림 → 로봇 정지              │            │ 5초마다 새 그림 조회
+  ├─ 전면 카메라 → 회색 사람 모형 찾기                      ▼            │
+  └─ 블루투스(BLE) → Arduino UNO R4 WiFi              Supabase (그림·메모 저장)
+                      → 모터 드라이버 → 바퀴 2개              ▲
+                                                             │ 그림 제출
+                                  [관람객 휴대폰] 모자이크의 QR → Vercel /draw
+```
+
+| 구성 요소 | 레포 | 배포 위치 | 역할 |
+|---|---|---|---|
+| 로봇 앱 | [`mockingbird-robot`](https://github.com/77qhtjd-bit/mockingbird-robot) | GitHub Pages: https://77qhtjd-bit.github.io/mockingbird-robot/web/ | 카메라로 모형 찾기, 바퀴 제어, `/draw` 화면 띄우기, 그리는 동안 정지 |
+| 아두이노 스케치 | `mockingbird-robot` (`firmware/`) | R4 WiFi에 직접 업로드 | 받은 바퀴 속도로 모터 구동, 신호 끊기면 정지 |
+| 그림 페이지 `/draw` | [`mockingbird-mosaic`](https://github.com/77qhtjd-bit/mockingbird-mosaic) | Vercel: https://mockingbird-mosaic.vercel.app/draw | 그림·메모 제출. 로봇 앱 안에서는 "그리는 중" 신호를 보냄 |
+| 모자이크 `/mosaic` | `mockingbird-mosaic` | Vercel: https://mockingbird-mosaic.vercel.app/mosaic | 모인 그림으로 포토모자이크, 감동 문구, QR 코드 |
+| 데이터 | — | Supabase | 그림 이미지(Storage)와 메모(DB) 저장 |
+
+**무엇을 고치면 어디에 반영되나**
+- 그림 페이지나 모자이크를 바꾸려면 `mockingbird-mosaic`에 푸시합니다. Vercel이 자동 배포하고, 로봇 화면에도 바로 반영됩니다.
+- 로봇 동작(찾기, 주행, 화면 띄우기)을 바꾸려면 `mockingbird-robot`의 `web/`을 고쳐 푸시합니다. 1분 안에 GitHub Pages에 반영됩니다.
+- 모터 핀, 최소 출력, 정지 시간을 바꾸려면 `firmware/` 스케치를 고치고 Arduino IDE로 다시 업로드합니다.
+
+**행사 당일 순서**
+1. 큰 모니터에서 `/mosaic`을 열고 **Fullscreen**을 누릅니다.
+2. 로봇 전원을 켭니다. R4의 LED 매트릭스 아래 줄에 점선이 보이면 연결 대기 상태입니다.
+3. 로봇 휴대폰에서 자동 잠금을 **안 함**으로 두고, Bluefy로 로봇 앱을 엽니다.
+4. **Connect robot** → **Start camera** → **Calibrate**(모형 탭) → **START**를 누릅니다. 그러면 화면이 `/draw`로 바뀝니다.
+5. 운영 화면으로 돌아가려면 왼쪽 위 점을 1초 누릅니다. 점 색은 초록 = 주행, 주황 = 그리는 중이라 정지, 회색 = 정지입니다.
+
 ## 1. 배선
 
 | 장치 | 드라이버 연결 | R4 WiFi 핀 |
