@@ -4,6 +4,8 @@
 //   left/right = int8 wheel speed in percent, -100..100, + = forward.
 // ACK (notify), 2 bytes: seq echoed back, used for round-trip time and stall detection.
 // Board watchdog: no command for 400 ms, or a disconnect -> both motors stop.
+// Screen height (write, 1 byte): 0..100 = lowest..highest position of the phone lift servo.
+//   Sketches from before the lift do not have this characteristic; driving still works with them.
 //
 // Connection handling follows haptic-lane-guide's BeltLink: one tap to choose the board, then
 // automatic reconnects with backoff, a stall check (writing but no ACK for 1 s -> reconnect) and
@@ -13,6 +15,7 @@ export const ROBOT_NAME = 'MockingbirdBot';
 export const SERVICE_UUID = 'c5831c08-81a7-4b41-bc27-ce21e6c8a9d0';
 export const COMMAND_UUID = 'ae8acab1-0450-4513-b4e1-0cec81b012a7';
 export const ACK_UUID = 'd55045a0-f292-446c-99f6-c6b81a18cba1';
+export const HEIGHT_UUID = '535aa1fd-354f-456e-a5d3-7529c36fed04';
 
 const clampPct = (v) => Math.max(-100, Math.min(100, Math.round(v) || 0));
 
@@ -25,12 +28,19 @@ export function encodeDrive(seq, left, right) {
   return b;
 }
 
+export function encodeHeight(pct) {
+  return new Uint8Array([Math.max(0, Math.min(100, Math.round(pct) || 0))]);
+}
+
 export class RobotLink {
   constructor({ onLog = () => {}, onStatus = () => {} } = {}) {
     this.onLog = onLog;
     this.onStatus = onStatus;
     this.device = null;
     this.cmdChar = null;
+    this.heightChar = null;
+    this.heightWant = null; // 0..100, sent by the next send() when dirty
+    this.heightDirty = false;
     this.noResponse = false;
     this.connecting = false;
     this.writing = false;
@@ -53,6 +63,19 @@ export class RobotLink {
 
   get connected() {
     return !!this.cmdChar;
+  }
+
+  // False when connected to a sketch without the screen lift.
+  get hasHeight() {
+    return !!this.heightChar;
+  }
+
+  // Latest wins. The value goes out with the next drive command, so the two writes never overlap
+  // (Web Bluetooth allows one GATT operation at a time). It is sent again after every reconnect:
+  // the board only powers the servo once it knows where the screen should be.
+  setHeight(pct) {
+    this.heightWant = pct;
+    this.heightDirty = true;
   }
 
   // Must run inside a tap: opens the device chooser.
@@ -88,6 +111,7 @@ export class RobotLink {
     this.retryTimer = null;
     this.device = null;
     this.cmdChar = null;
+    this.heightChar = null;
   }
 
   disconnect() {
@@ -108,6 +132,13 @@ export class RobotLink {
       ack.addEventListener('characteristicvaluechanged', this.onAck);
       await ack.startNotifications();
       this.noResponse = typeof cmd.writeValueWithoutResponse === 'function';
+      try {
+        this.heightChar = await service.getCharacteristic(HEIGHT_UUID);
+        this.heightDirty = this.heightWant !== null;
+      } catch {
+        this.heightChar = null;
+        this.onLog('this sketch has no screen-height control: upload the current firmware to use it');
+      }
       this.cmdChar = cmd;
       this.lastAckT = performance.now();
       this.attempts = 0;
@@ -140,6 +171,7 @@ export class RobotLink {
 
   onDisconnected() {
     this.cmdChar = null;
+    this.heightChar = null;
     this.pending.clear();
     this.onStatus('disconnected, reconnecting', false);
     if (!this.connecting) this.scheduleRetry(500);
@@ -171,6 +203,12 @@ export class RobotLink {
     this.seq = (this.seq + 1) & 0xffff;
     const packet = encodeDrive(this.seq, left, right);
     try {
+      if (this.heightDirty && this.heightChar) {
+        this.heightDirty = false;
+        const h = encodeHeight(this.heightWant);
+        if (this.noResponse) await this.heightChar.writeValueWithoutResponse(h);
+        else await this.heightChar.writeValue(h);
+      }
       this.lastWriteT = performance.now();
       this.pending.set(this.seq, this.lastWriteT);
       if (this.pending.size > 64) this.pending.delete(this.pending.keys().next().value);

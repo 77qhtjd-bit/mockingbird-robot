@@ -75,6 +75,12 @@
     .screen-exit.running span { background: #2bd47a; }
     .screen-exit.running.paused span { background: #f2b33d; }
     .screen-exit.holding span { transform: scale(3); }
+    /* What the robot just said, shown over the visitor screen for people who cannot hear it. */
+    .screen-say { position: absolute; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); z-index: 2; max-width: min(86%, 420px); padding: 10px 16px; border-radius: 18px; background: rgba(26,26,26,0.92); color: #fff; font-size: 1.05rem; font-weight: 600; text-align: center; line-height: 1.3; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+    .lift { display: flex; align-items: center; gap: 10px; }
+    .lift .btn { flex: 1; padding: 16px 12px; font-size: 1.05rem; touch-action: none; -webkit-user-select: none; user-select: none; }
+    .lift .btn.held { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .lift output { min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
     #cam { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; }
     [hidden] { display: none !important; }
   </style>
@@ -96,7 +102,7 @@
   <p class="info" id="bleNote" hidden>This browser has no Web Bluetooth. On iPhone use the Bluefy app; on Android or a laptop use Chrome.</p>
 
   <div class="tabs" role="tablist">
-    <button class="on" data-mode="auto" role="tab">Auto: find the figure</button>
+    <button class="on" data-mode="auto" role="tab">Auto: meet people</button>
     <button data-mode="manual" role="tab">Manual drive</button>
   </div>
 
@@ -114,10 +120,10 @@
   <!-- Auto -->
   <section id="panelAuto" class="card">
     <button class="big" id="btnRun">START</button>
-    <button class="btn" id="btnShow">Show drawing screen (robot keeps running)</button>
+    <button class="btn" id="btnShow">Show visitor screen (robot keeps running)</button>
     <div class="calib">
       <span class="swatch" id="swatch"></span>
-      <span style="flex:1">Target gray <span class="info" id="refText"></span></span>
+      <span style="flex:1">Person color <span class="info" id="refText"></span></span>
       <button class="btn" id="btnCalib">Calibrate</button>
       <button class="btn" id="btnResetRef" title="Back to PLA Basic Gray">Reset</button>
     </div>
@@ -127,7 +133,9 @@
       <div class="sliders" id="sliders"></div>
       <div class="checks">
         <label><input type="checkbox" id="showMask" checked /> Show matched pixels</label>
+        <label><input type="checkbox" id="speak" /> Speak to people (English)</label>
       </div>
+      <button class="btn" id="btnVoice" style="margin-top:10px;width:100%">Test voice</button>
     </details>
   </section>
 
@@ -138,6 +146,21 @@
     <div class="sliders">
       <span>Manual speed</span><output id="manualSpeedOut"></output>
       <input type="range" id="manualSpeed" min="20" max="100" step="5" />
+    </div>
+  </section>
+
+  <!-- Manual, in both modes: raise / lower the phone so children and adults can both reach it -->
+  <section class="card">
+    <div class="calib"><b style="flex:1">Screen height</b><span class="info" id="liftNote">hold a button · keys <kbd>R</kbd> <kbd>F</kbd></span></div>
+    <div class="lift">
+      <button class="btn" id="btnLiftDown">▼ Lower</button>
+      <output id="liftOut"></output>
+      <button class="btn" id="btnLiftUp">▲ Raise</button>
+    </div>
+    <div class="row">
+      <button class="btn" data-lift="10">Child</button>
+      <button class="btn" data-lift="50">Middle</button>
+      <button class="btn" data-lift="90">Adult</button>
     </div>
   </section>
 
@@ -153,9 +176,9 @@
         </label>
         <label><input type="checkbox" id="mirror" /> Flip image left/right</label>
         <label><input type="checkbox" id="autoScreen" /> Show the screen on START</label>
-        <label><input type="checkbox" id="pauseWhileDrawing" /> Stop while someone is drawing</label>
+        <label><input type="checkbox" id="pauseWhileDrawing" /> Stop while someone is using the screen</label>
       </div>
-      <p class="info" style="margin:6px 0 0">Turn on <b>Flip</b> if the robot turns away from the figure instead of toward it.</p>
+      <p class="info" style="margin:6px 0 0">Turn on <b>Flip</b> if the robot turns away from the person instead of toward them.</p>
       <select class="btn" id="camSelect" style="margin-top:10px;width:100%" hidden></select>
       <label class="info" style="display:block;margin-top:10px">Screen address (shown full screen over the app)
         <input id="screenUrl" type="url" style="width:100%;padding:8px;margin-top:4px;border:1px solid var(--rule);border-radius:8px" />
@@ -180,11 +203,12 @@
   </section>
 </main>
 
-<!-- Full-screen mosaic over the app. The app stays in the foreground underneath, so camera,
+<!-- Full-screen visitor page over the app. The app stays in the foreground underneath, so camera,
      detection and Bluetooth keep running. Hold the dot in the top-left corner for 1 s to exit. -->
 <div class="screen" id="screen" hidden>
-  <iframe id="screenFrame" title="Drawing screen" allow="fullscreen"></iframe>
+  <iframe id="screenFrame" title="Visitor screen" allow="fullscreen"></iframe>
   <button class="screen-exit" id="screenExit" aria-label="Hold to exit"><span></span></button>
+  <div class="screen-say" id="sayBubble" role="status" hidden></div>
 </div>
 
 <script type="module">
@@ -202,7 +226,11 @@ const SLIDERS = [
   { group: 'follow', key: 'maxSpeed', label: 'Max forward speed', min: 20, max: 100, step: 5, fmt: (v) => `${v}%` },
   { group: 'follow', key: 'turnSpeed', label: 'Steering strength', min: 10, max: 80, step: 5, fmt: (v) => `${v}%` },
   { group: 'follow', key: 'searchSpeed', label: 'Search spin speed', min: 15, max: 80, step: 5, fmt: (v) => `${v}%` },
-  { group: 'follow', key: 'stopSize', label: 'Stop when figure fills (height)', min: 0.2, max: 0.95, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
+  { group: 'follow', key: 'stopSize', label: 'Stop when the person fills (height)', min: 0.2, max: 0.95, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
+  { group: 'follow', key: 'greetWaitMs', label: 'Wait for a touch after greeting', min: 2000, max: 15000, step: 1000, fmt: (v) => `${v / 1000} s` },
+  { group: 'follow', key: 'passTurnMs', label: 'No response: turn away for', min: 300, max: 2500, step: 100, fmt: (v) => `${(v / 1000).toFixed(1)} s` },
+  { group: 'follow', key: 'passDriveMs', label: 'No response: then drive on for', min: 0, max: 4000, step: 200, fmt: (v) => `${(v / 1000).toFixed(1)} s` },
+  { group: 'follow', key: 'moveCx', label: 'Counts as walking: sideways movement', min: 0.03, max: 0.25, step: 0.01, fmt: (v) => `${Math.round(v * 100)}% of view` },
   { group: 'vision', key: 'lumTol', label: 'Brightness tolerance', min: 10, max: 80, step: 2 },
   { group: 'vision', key: 'chromaTol', label: 'Tint tolerance', min: 4, max: 40, step: 1 },
   { group: 'vision', key: 'targetAspect', label: 'Figure shape (height ÷ width)', min: 0.8, max: 5, step: 0.1, fmt: (v) => v.toFixed(1) },
@@ -213,13 +241,15 @@ const defaults = () => ({
   follow: { ...DEFAULT_FOLLOW },
   vision: { ...DEFAULT_VISION, ref: { ...PLA_BASIC_GRAY } },
   invL: false, invR: false, swapLR: false, manualSpeed: 60, showMask: true,
-  camFacing: 'user', mirror: false, pauseWhileDrawing: true, screenUrl: 'https://mockingbird-mosaic.vercel.app/draw', autoScreen: true,
+  camFacing: 'user', mirror: false, pauseWhileDrawing: true, screenUrl: 'https://mockingbird-mosaic.vercel.app/', autoScreen: true,
+  speak: true, height: 50,
 });
 let settings = defaults();
 try {
   const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
   if (saved) settings = { ...settings, ...saved, follow: { ...settings.follow, ...saved.follow }, vision: { ...settings.vision, ...saved.vision } };
-  if (settings.screenUrl === 'https://mockingbird-mosaic.vercel.app/mosaic') settings.screenUrl = defaults().screenUrl; // old default
+  // old defaults: the visitor screen now starts at the home page (draw, or look at drawings)
+  if (/^https:\/\/mockingbird-mosaic\.vercel\.app\/(mosaic|draw)$/.test(settings.screenUrl)) settings.screenUrl = defaults().screenUrl;
 } catch {}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch {} };
 
@@ -233,29 +263,61 @@ let autoCmd = { left: 0, right: 0 };
 let manualXY = { x: 0, y: 0 };
 let testCmd = null; // wheel test buttons
 
-// ---------- Pause while someone is drawing ----------
-// The drawing page (mockingbird-mosaic /draw, shown in the screen iframe) posts
+// ---------- Stay put while someone is using the screen ----------
+// The visitor page (mockingbird-mosaic, shown in the screen iframe) posts
 // { source: 'mockingbird-draw', type: 'activity' } on every touch / key and
-// { type: 'phase', phase: 'intro' | 'draw' | 'details' | 'done' } when its step changes.
-// Auto driving pauses while a person is mid-drawing (draw / details step) and has touched the
-// screen in the last DRAW_IDLE_MS; it resumes right after they submit, or when they walk away.
+// { type: 'phase', phase: 'home' | 'draw' | 'details' | 'done' | 'gallery' | 'mine' } when its page changes.
+// Any touch stops the robot at once. It stays stopped until the screen has been left alone for
+// DRAW_IDLE_MS while drawing or writing (people pause to think), TOUCH_IDLE_MS otherwise.
 const DRAW_IDLE_MS = 20000;
-let drawPhase = 'intro';
+const TOUCH_IDLE_MS = 8000;
+let drawPhase = 'home';
 let drawActivityT = -Infinity;
-let wasPaused = false;
 window.addEventListener('message', (e) => {
   const frame = document.getElementById('screenFrame');
   if (!frame || e.source !== frame.contentWindow || e.data?.source !== 'mockingbird-draw') return;
   if (e.data.type === 'activity') drawActivityT = performance.now();
   if (e.data.type === 'phase') {
+    if (e.data.phase === 'done' && drawPhase !== 'done') say('Thank you! Have a nice day.');
     drawPhase = e.data.phase;
-    if (drawPhase === 'done' || drawPhase === 'intro') drawActivityT = -Infinity;
   }
 });
-function pausedForDrawing(now = performance.now()) {
-  return settings.pauseWhileDrawing && !$('screen').hidden &&
-    (drawPhase === 'draw' || drawPhase === 'details') && now - drawActivityT < DRAW_IDLE_MS;
+function screenInUse(now = performance.now()) {
+  if (!settings.pauseWhileDrawing || $('screen').hidden) return false;
+  const idle = drawPhase === 'draw' || drawPhase === 'details' ? DRAW_IDLE_MS : TOUCH_IDLE_MS;
+  return now - drawActivityT < idle;
 }
+
+// ---------- Voice (English) ----------
+const GREETINGS = [
+  'How are you? Draw your day!',
+  'Could you show me your day briefly?',
+  'Hi there! Would you draw a moment from your day?',
+  'Hello! Tap my screen to draw, or just look at what others drew.',
+];
+let greetIdx = 0;
+let sayTimer = null;
+function say(text) {
+  const bubble = $('sayBubble');
+  bubble.textContent = text;
+  bubble.hidden = false;
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { bubble.hidden = true; }, 5000);
+  if (!settings.speak || !('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 0.95;
+    const voices = speechSynthesis.getVoices();
+    const voice = voices.find((v) => v.lang === 'en-US') ?? voices.find((v) => v.lang?.startsWith('en'));
+    if (voice) u.voice = voice;
+    speechSynthesis.speak(u);
+  } catch (e) {
+    log(`voice: ${e.message}`);
+  }
+}
+const greet = () => say(GREETINGS[greetIdx++ % GREETINGS.length]);
 const keys = new Set();
 
 function log(msg) {
@@ -263,6 +325,7 @@ function log(msg) {
   el.textContent = `${new Date().toLocaleTimeString()} ${msg}\n${el.textContent}`.slice(0, 3000);
 }
 function robotStatus(text, ok) {
+  $('liftNote').textContent = ok && !link.hasHeight ? 'needs the current firmware on the board' : 'hold a button · keys R F';
   $('pillRobot').textContent = `Robot: ${text}`;
   $('pillRobot').classList.toggle('on', ok);
   $('btnConnect').textContent = ok ? 'Disconnect' : 'Connect robot';
@@ -364,21 +427,16 @@ function frameLoop(t) {
     drawFrame(pctx, PROC_W, ph);
     const img = pctx.getImageData(0, 0, PROC_W, ph);
     lastDet = detectFigure(img.data, PROC_W, ph, settings.vision, lastDet?.target ?? null, visionBuf);
-    const paused = mode === 'auto' && running && pausedForDrawing(t);
-    if (paused !== wasPaused) {
-      wasPaused = paused;
-      $('screenExit').classList.toggle('paused', paused);
-      if (running) log(paused ? 'someone is drawing: robot paused' : 'drawing finished: robot resumes');
-      // Start fresh after a pause: the figure may have moved and the search timer should not count it.
-      if (!paused) ctrl.reset(t);
-    }
-    if (paused) {
-      autoCmd = { left: 0, right: 0 };
-    } else if (mode === 'auto' && running) {
+    if (mode === 'auto' && running) {
       const d = lastDet.found ? { found: true, cx: lastDet.target.cx, size: lastDet.target.size } : { found: false };
-      const out = ctrl.update(d, t);
+      const before = ctrl.state;
+      const out = ctrl.update(d, t, { interacting: screenInUse(t) });
       autoCmd = { left: out.left, right: out.right };
-      if (out.state === State.GAVE_UP) setRunning(false, 'Search timed out — figure not found');
+      if (out.event === 'greet') greet();
+      if (out.state !== before) {
+        log(`${before} → ${out.state}`);
+        $('screenExit').classList.toggle('paused', out.state === State.ENGAGED || out.state === State.GREET);
+      }
     }
     drawMask(ph);
     showAutoInfo();
@@ -444,16 +502,18 @@ function drawView() {
 }
 
 const STATE_TEXT = {
-  [State.SEARCH]: 'Searching…', [State.APPROACH]: 'Approaching', [State.LOST]: 'Lost — waiting',
-  [State.ARRIVED]: 'Arrived ✓', [State.GAVE_UP]: 'Not found',
+  [State.SEARCH]: 'Looking for people…', [State.WATCH]: 'Someone in view — watching', [State.APPROACH]: 'Approaching',
+  [State.GREET]: 'Said hello — waiting for a touch', [State.ENGAGED]: 'Screen in use — staying put',
+  [State.PASS]: 'No response — moving on', [State.LOST]: 'Lost — waiting', [State.REST]: 'Nobody around — resting',
 };
 function showAutoInfo() {
   const tg = lastDet?.target;
-  const det = tg ? `figure at ${Math.round((tg.cx * 2 - 1) * 100)}% (←−/+→), height ${Math.round(tg.size * 100)}% of frame` : 'no figure in view';
+  const walk = ctrl.moving === null ? '' : ctrl.moving ? ', walking' : ', standing';
+  const det = tg ? `person at ${Math.round((tg.cx * 2 - 1) * 100)}% (←−/+→), height ${Math.round(tg.size * 100)}% of frame${running ? walk : ''}` : 'nobody in view';
   $('autoInfo').textContent = `${det}${link.rttMs != null ? ` · BLE ${Math.round(link.rttMs)} ms` : ''}`;
   const tag = $('stateTag');
   tag.hidden = mode !== 'auto' || !running;
-  tag.textContent = wasPaused ? 'Paused — someone is drawing' : STATE_TEXT[ctrl.state] ?? ctrl.state;
+  tag.textContent = ctrl.state === State.WATCH && ctrl.moving ? 'Walking person — not following' : STATE_TEXT[ctrl.state] ?? ctrl.state;
 }
 
 // ---------- Calibration (tap the figure) ----------
@@ -461,7 +521,7 @@ let calibrating = false;
 $('btnCalib').onclick = () => {
   calibrating = !calibrating;
   $('btnCalib').classList.toggle('on', calibrating);
-  $('btnCalib').textContent = calibrating ? 'Tap the figure' : 'Calibrate';
+  $('btnCalib').textContent = calibrating ? 'Tap the person' : 'Calibrate';
   $('stage').classList.toggle('calibrating', calibrating);
 };
 view.addEventListener('pointerdown', (e) => {
@@ -473,7 +533,7 @@ view.addEventListener('pointerdown', (e) => {
   settings.vision.ref = sampleColor(img.data, proc.width, proc.height, x, y, 3);
   save();
   showRef();
-  log(`calibrated gray: rgb(${settings.vision.ref.r}, ${settings.vision.ref.g}, ${settings.vision.ref.b})`);
+  log(`calibrated person color: rgb(${settings.vision.ref.r}, ${settings.vision.ref.g}, ${settings.vision.ref.b})`);
   $('btnCalib').click();
 });
 $('btnResetRef').onclick = () => {
@@ -517,7 +577,7 @@ $('screenUrl').onchange = (e) => {
   $('screenFrame').removeAttribute('src');
   save();
 };
-for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror', 'autoScreen', 'pauseWhileDrawing']) {
+for (const key of ['invL', 'invR', 'swapLR', 'showMask', 'mirror', 'autoScreen', 'pauseWhileDrawing', 'speak']) {
   $(key).checked = settings[key];
   $(key).onchange = () => { settings[key] = $(key).checked; save(); };
 }
@@ -537,13 +597,26 @@ function setRunning(on, why) {
   $('btnRun').textContent = on ? 'STOP' : 'START';
   $('btnRun').classList.toggle('running', on);
   $('screenExit').classList.toggle('running', on);
+  $('screenExit').classList.remove('paused');
+  if (!on) window.speechSynthesis?.cancel();
   if (why) log(why);
   showAutoInfo();
 }
 $('btnRun').onclick = () => {
   if (!running && !stream) return log('start the camera first');
   setRunning(!running);
-  if (running && settings.autoScreen) showScreen();
+  if (running) {
+    // Phones only allow speech that starts from a tap; this first sentence unlocks the later greetings.
+    say('Hello! I am Mockingbird.');
+    drawActivityT = -Infinity;
+    if (settings.autoScreen) showScreen();
+  }
+};
+$('btnVoice').onclick = () => {
+  const was = settings.speak;
+  settings.speak = true;
+  greet();
+  settings.speak = was;
 };
 
 // ---------- Mode tabs ----------
@@ -559,6 +632,38 @@ document.querySelectorAll('.tabs button').forEach((b) => {
     if (!stream) $('hint').textContent = mode === 'manual' ? 'Camera is optional in manual mode' : 'Start the camera (screen and front camera facing forward on the robot)';
   };
 });
+
+// ---------- Screen height (manual, works in both modes) ----------
+// 0 = lowest (children), 100 = highest (adults). Hold ▲ / ▼ or R / F to move; the value is saved
+// and sent again after a reconnect so the lift holds its position.
+const LIFT_STEP = 2; // percent per tick
+const LIFT_TICK_MS = 60;
+let liftDir = 0;
+let liftTimer = null;
+function setLift(v) {
+  settings.height = Math.max(0, Math.min(100, Math.round(v)));
+  $('liftOut').textContent = `${settings.height}%`;
+  link.setHeight(settings.height);
+  save();
+}
+function holdLift(dir) {
+  if (liftDir === dir) return;
+  liftDir = dir;
+  clearInterval(liftTimer);
+  $('btnLiftUp').classList.toggle('held', dir > 0);
+  $('btnLiftDown').classList.toggle('held', dir < 0);
+  if (!dir) return;
+  setLift(settings.height + dir * LIFT_STEP);
+  liftTimer = setInterval(() => setLift(settings.height + liftDir * LIFT_STEP), LIFT_TICK_MS);
+}
+for (const [id, dir] of [['btnLiftUp', 1], ['btnLiftDown', -1]]) {
+  const b = $(id);
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); holdLift(dir); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => holdLift(0));
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+document.querySelectorAll('[data-lift]').forEach((b) => { b.onclick = () => setLift(Number(b.dataset.lift)); });
+setLift(settings.height);
 
 // ---------- Manual: joystick + keyboard ----------
 const pad = $('pad');
@@ -592,11 +697,18 @@ window.addEventListener('keydown', (e) => {
     emergencyStop('Space pressed');
     return;
   }
-  const k = KEYMAP[e.key.toLowerCase()];
+  const key = e.key.toLowerCase();
+  if (key === 'r' || key === 'f') { holdLift(key === 'r' ? 1 : -1); e.preventDefault(); return; }
+  const k = KEYMAP[key];
   if (k && mode === 'manual') { keys.add(k); e.preventDefault(); }
 });
-window.addEventListener('keyup', (e) => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys.delete(k); });
-window.addEventListener('blur', () => keys.clear());
+window.addEventListener('keyup', (e) => {
+  const key = e.key.toLowerCase();
+  if (key === 'r' || key === 'f') holdLift(0);
+  const k = KEYMAP[key];
+  if (k) keys.delete(k);
+});
+window.addEventListener('blur', () => { keys.clear(); holdLift(0); });
 
 function manualCommand() {
   let { x, y } = manualXY;
@@ -620,8 +732,9 @@ function emergencyStop(why) {
   releasePad();
   keys.clear();
   testCmd = null;
+  holdLift(0);
 }
-// ---------- Mosaic screen ----------
+// ---------- Visitor screen ----------
 function showScreen() {
   const f = $('screenFrame');
   if (!f.getAttribute('src')) f.src = settings.screenUrl;

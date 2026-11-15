@@ -7,11 +7,16 @@
 //   [seq lo, seq hi, left, right]   left/right = int8 speed in percent, -100..100 (+ = forward)
 // ACK characteristic (notify), 2 bytes: the seq echoed back (round-trip time on the page).
 // Watchdog: no command for WATCHDOG_MS, or the phone disconnects -> both motors stop.
+// Height characteristic (write / write without response), 1 byte: 0..100 = screen lift position,
+//   0 = lowest (children), 100 = highest (adults). The servo is not powered until the first
+//   value arrives, so it does not jump at power-on; after that it holds its position, also when
+//   the phone disconnects.
 //
 // Wiring (2-channel driver with AIN1/AIN2/BIN1/BIN2 inputs, e.g. DRV8833):
 //   right TT motor  -> A01, A02     AIN1 -> D2, AIN2 -> D3 (PWM)
 //   left  TT motor  -> B01, B02     BIN1 -> D4, BIN2 -> D5 (PWM)
-//   D6 height servo, D7 tilt servo: reserved, not driven by this sketch yet.
+//   D6 height servo (signal). Power the servo from the battery side, not from the R4's 5V pin.
+//   D7 tilt servo: reserved, not driven by this sketch yet.
 //
 // Speed control with one PWM pin per motor (D2/D4 have no PWM on the R4):
 //   forward : IN1 = HIGH, IN2 = PWM(255 - duty)   (drive / brake, slow decay)
@@ -21,12 +26,14 @@
 // Serial test without the phone (Serial Monitor 9600, "No line ending"):
 //   w forward, s back, a spin left, d spin right, l left motor only, r right motor only, space stop.
 //   Each key drives for SERIAL_HOLD_MS. Use it to check wiring and motor directions.
+//   u screen up 10 %, j screen down 10 %.
 //
 // LED matrix: dotted bottom row = advertising; dotted top + bottom = connected, no command;
 //   left bar (columns 1-2) = left wheel, right bar (columns 9-10) = right wheel,
 //   up from the middle = forward, down = reverse, length = speed.
 
 #include <ArduinoBLE.h>
+#include <Servo.h>
 #include "Arduino_LED_Matrix.h"
 
 // ---------- Settings ----------
@@ -45,14 +52,24 @@ const unsigned long WATCHDOG_MS = 400;
 const unsigned long SERIAL_HOLD_MS = 700;
 const int SERIAL_TEST_SPEED = 60;   // percent
 
+// Screen lift: a standard (positional) hobby servo on D6.
+// Set the two angles to the ends of your mechanism's travel; swap them if up and down are reversed.
+const int HEIGHT_PIN = 6;
+const int HEIGHT_LOW_ANGLE = 20;    // servo angle with the screen at its lowest (0 %)
+const int HEIGHT_HIGH_ANGLE = 160;  // servo angle with the screen at its highest (100 %)
+// Slow travel so the phone is not jerked: 1 degree per HEIGHT_STEP_MS (20 ms = 50 degrees per second).
+const unsigned long HEIGHT_STEP_MS = 20;
+
 #define SERVICE_UUID "c5831c08-81a7-4b41-bc27-ce21e6c8a9d0"
 #define CMD_UUID     "ae8acab1-0450-4513-b4e1-0cec81b012a7"
 #define ACK_UUID     "d55045a0-f292-446c-99f6-c6b81a18cba1"
+#define HEIGHT_UUID  "535aa1fd-354f-456e-a5d3-7529c36fed04"
 const int CMD_LEN = 4;
 
 BLEService driveService(SERVICE_UUID);
 BLECharacteristic cmdChar(CMD_UUID, BLEWrite | BLEWriteWithoutResponse, CMD_LEN, true);
 BLECharacteristic ackChar(ACK_UUID, BLENotify, 2, true);
+BLECharacteristic heightChar(HEIGHT_UUID, BLEWrite | BLEWriteWithoutResponse, 1, true);
 
 ArduinoLEDMatrix matrix;
 uint8_t frame[8][12];
@@ -66,6 +83,13 @@ bool haveSignal = false;
 bool connected = false;
 bool bleOk = false;
 bool matrixDirty = true;
+
+Servo heightServo;
+bool heightAttached = false;
+int heightPct = 50;       // last requested position, 0..100
+int heightAngle = 0;      // where the servo is now
+int heightTarget = 0;     // where it is going
+unsigned long lastHeightMs = 0;
 
 // ---------- Motors ----------
 int percentToDuty(int pct) {
@@ -136,6 +160,29 @@ void updateRamp() {
   }
 }
 
+// ---------- Screen lift ----------
+void setHeight(int pct) {
+  heightPct = constrain(pct, 0, 100);
+  heightTarget = map(heightPct, 0, 100, HEIGHT_LOW_ANGLE, HEIGHT_HIGH_ANGLE);
+  if (!heightAttached) {
+    // First value since power-on: the phone sends the position it remembers, which is where
+    // the lift was left, so start there instead of sweeping from an unknown angle.
+    heightAngle = heightTarget;
+    heightServo.attach(HEIGHT_PIN);
+    heightServo.write(heightAngle);
+    heightAttached = true;
+  }
+}
+
+void updateHeight() {
+  if (!heightAttached || heightAngle == heightTarget) return;
+  unsigned long now = millis();
+  if (now - lastHeightMs < HEIGHT_STEP_MS) return;
+  lastHeightMs = now;
+  heightAngle += heightTarget > heightAngle ? 1 : -1;
+  heightServo.write(heightAngle);
+}
+
 // ---------- LED matrix ----------
 void drawBar(int col, int d) {
   int len = (abs(d) * 4 + 254) / 255;   // 0..4 rows
@@ -196,6 +243,13 @@ void handleSerial() {
       case 'l': l = s; break;
       case 'r': r = s; break;
       case ' ': signalLost(); Serial.println("stop"); continue;
+      case 'u':
+      case 'j':
+        setHeight(heightPct + (c == 'u' ? 10 : -10));
+        Serial.print("screen height ");
+        Serial.print(heightPct);
+        Serial.println("%");
+        continue;
       default: continue;
     }
     setTargets(l, r, SERIAL_HOLD_MS);
@@ -231,14 +285,15 @@ void setup() {
     BLE.setAdvertisedService(driveService);
     driveService.addCharacteristic(cmdChar);
     driveService.addCharacteristic(ackChar);
+    driveService.addCharacteristic(heightChar);
     BLE.addService(driveService);
     BLE.setEventHandler(BLEConnected, onConnect);
     BLE.setEventHandler(BLEDisconnected, onDisconnect);
     BLE.advertise();
     Serial.println("Advertising as MockingbirdBot");
   }
-  Serial.println("Pins: right AIN1 D2, AIN2 D3 | left BIN1 D4, BIN2 D5");
-  Serial.println("Serial test: w/s/a/d, l = left only, r = right only, space = stop");
+  Serial.println("Pins: right AIN1 D2, AIN2 D3 | left BIN1 D4, BIN2 D5 | height servo D6");
+  Serial.println("Serial test: w/s/a/d, l = left only, r = right only, space = stop, u/j = screen up/down");
 }
 
 void loop() {
@@ -249,6 +304,7 @@ void loop() {
       ackChar.writeValue(v, 2);   // echo seq first
       setTargets((int8_t)v[2], (int8_t)v[3], WATCHDOG_MS);
     }
+    if (heightChar.written() && heightChar.valueLength() == 1) setHeight(heightChar.value()[0]);
   }
   handleSerial();
 
@@ -258,5 +314,6 @@ void loop() {
   }
 
   updateRamp();
+  updateHeight();
   if (matrixDirty) drawMatrix();
 }
