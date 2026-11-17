@@ -24,7 +24,7 @@ const still = (n, cx = 0.5, size = 0.2) => Array(n).fill(seen(cx, size));
 function toGreet(ctrl) {
   const a = run(ctrl, still(25)); // watch, then approach
   assert.equal(a.out.state, State.APPROACH);
-  const b = run(ctrl, still(8, 0.5, 0.7), a.t);
+  const b = run(ctrl, still(8, 0.5, 0.9), a.t);
   assert.equal(b.out.state, State.GREET);
   return b;
 }
@@ -84,7 +84,7 @@ test('approaches once a walking person stops', () => {
 
 test('stays stopped and greets when a walking person comes close', () => {
   const c = new FollowController();
-  const coming = Array.from({ length: 40 }, (_, i) => seen(0.5, 0.15 + 0.012 * i));
+  const coming = Array.from({ length: 40 }, (_, i) => seen(0.5, 0.15 + 0.016 * i));
   const { out, events } = run(c, coming);
   assert.equal(out.state, State.GREET);
   assert.deepEqual([out.left, out.right], [0, 0]);
@@ -122,9 +122,12 @@ test('steers toward a standing person and turns in place when they are far to th
 test('slows down as the person gets closer, stops in front of them and greets once', () => {
   const c = new FollowController();
   const far = run(c, still(25)).out.left;
-  const near = run(c, still(5, 0.5, 0.5), 2000).out.left;
+  const near = run(c, still(5, 0.5, 0.65), 2000).out.left;
   assert.ok(near < far && near > 0);
-  const { out, events } = run(c, still(8, 0.5, 0.7), 3000);
+  // the old stop size (60 %) no longer stops it: it keeps coming closer
+  const closer = run(c, still(5, 0.5, 0.7), 2500).out;
+  assert.ok(closer.state === State.APPROACH && closer.left > 0);
+  const { out, events } = run(c, still(8, 0.5, 0.9), 3000);
   assert.deepEqual([out.state, out.left, out.right], [State.GREET, 0, 0]);
   assert.deepEqual(events, ['greet']);
 });
@@ -151,7 +154,7 @@ test('stops again when someone is close while driving on', () => {
   c.update(none, t); // -> PASS
   t += 400; // past the turn
   assert.ok(c.update(none, t).left > 0);
-  const { out, events } = run(c, still(4, 0.5, 0.55), t + DT);
+  const { out, events } = run(c, still(4, 0.5, 0.7), t + DT);
   assert.deepEqual([out.state, out.left, out.right], [State.GREET, 0, 0]);
   assert.deepEqual(events, ['greet']);
 });

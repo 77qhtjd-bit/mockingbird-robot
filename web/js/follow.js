@@ -40,9 +40,11 @@ export const DEFAULT_FOLLOW = {
   kTurn: 1.6, // steering gain on the horizontal offset (-1..1)
   turnDeadband: 0.06, // offset treated as centered
   alignBand: 0.45, // offset at which forward speed drops to zero (turn in place)
-  stopSize: 0.6, // figure height / frame height at which the robot stops in front of a person
+  // figure height / frame height at which the robot stops in front of a person. Above ~0.9 the
+  // figure runs off the top and bottom of the image and the size stops growing.
+  stopSize: 0.85,
   nearFrac: 0.75, // a person this fraction of stopSize tall is "close" (stop for walkers, no approach needed)
-  slowFrom: 0.3, // start slowing down at this size
+  slowFrom: 0.45, // start slowing down at this size
   minFwd: 0.4, // slowest forward speed, as a fraction of maxSpeed
   smooth: 0.5, // detection smoothing (1 = none)
   confirmFrames: 3, // consecutive detections before acting on a person
