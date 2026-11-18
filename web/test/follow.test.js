@@ -124,8 +124,8 @@ test('slows down as the person gets closer, stops in front of them and greets on
   const far = run(c, still(25)).out.left;
   const near = run(c, still(5, 0.5, 0.65), 2000).out.left;
   assert.ok(near < far && near > 0);
-  // the old stop size (60 %) no longer stops it: it keeps coming closer
-  const closer = run(c, still(5, 0.5, 0.7), 2500).out;
+  // just below the stop size (70 %) it is still coming, slowly
+  const closer = run(c, still(5, 0.5, 0.66), 2500).out;
   assert.ok(closer.state === State.APPROACH && closer.left > 0);
   const { out, events } = run(c, still(8, 0.5, 0.9), 3000);
   assert.deepEqual([out.state, out.left, out.right], [State.GREET, 0, 0]);

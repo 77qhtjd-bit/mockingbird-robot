@@ -251,8 +251,8 @@ try {
   // old defaults: the visitor screen now starts at the home page (draw, or look at drawings)
   if (/^https:\/\/mockingbird-mosaic\.vercel\.app\/(mosaic|draw)$/.test(settings.screenUrl)) settings.screenUrl = defaults().screenUrl;
   // old defaults: the robot now comes closer before it stops (60 % -> 85 % of the frame height)
-  if (settings.follow.stopSize === 0.6) settings.follow.stopSize = DEFAULT_FOLLOW.stopSize;
-  if (settings.follow.slowFrom === 0.3) settings.follow.slowFrom = DEFAULT_FOLLOW.slowFrom;
+  if ([0.6, 0.85].includes(settings.follow.stopSize)) settings.follow.stopSize = DEFAULT_FOLLOW.stopSize;
+  if ([0.3, 0.45].includes(settings.follow.slowFrom)) settings.follow.slowFrom = DEFAULT_FOLLOW.slowFrom;
 } catch {}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch {} };
 

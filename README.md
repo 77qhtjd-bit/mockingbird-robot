@@ -133,7 +133,7 @@ LED 매트릭스: 아래 줄 점선 = 연결 대기, 위아래 점선 = 연결�
 |---|---|
 | Looking for people | 제자리에서 조금씩 돌며 사람을 찾습니다. 40초 동안 아무도 없으면 15초 쉬었다가 다시 찾습니다. |
 | Someone in view — watching | 사람이 보이면 **일단 멈춰서** 약 1초 지켜봅니다. 로봇이 서 있으므로 화면에서 위치나 크기가 변하면 그 사람이 걷고 있는 것입니다. |
-| Approaching | **서 있는 사람**이면 방향을 맞추며 다가가고, 화면 높이의 85%를 채우면 멈춥니다(Settings의 *Stop when the person fills*). |
+| Approaching | **서 있는 사람**이면 방향을 맞추며 다가가고, 화면 높이의 70%를 채우면 멈춥니다(Settings의 *Stop when the person fills*). |
 | Walking person — not following | **걷는 사람**은 따라가지 않고 서서 지켜봅니다. 그 사람이 가까이 오면 그대로 인사하고, 멈춰 서면 다가갑니다. 8초 동안 가까워지지 않으면 다른 쪽을 찾습니다. |
 | Said hello — waiting for a touch | 사람 앞에 멈춰 영어로 말을 겁니다("How are you? Draw your day!", "Could you show me your day briefly?" 등이 번갈아 나옴). 화면에도 같은 문장이 말풍선으로 뜹니다. |
 | Screen in use — staying put | 누군가 화면을 만지면 **어떤 상태에서든 즉시 멈추고** 쓰는 동안 움직이지 않습니다. |

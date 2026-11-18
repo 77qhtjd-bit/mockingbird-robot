@@ -42,9 +42,11 @@ export const DEFAULT_FOLLOW = {
   alignBand: 0.45, // offset at which forward speed drops to zero (turn in place)
   // figure height / frame height at which the robot stops in front of a person. Above ~0.9 the
   // figure runs off the top and bottom of the image and the size stops growing.
-  stopSize: 0.85,
+  // 0.85 was too close: near the robot the camera only sees part of the body, so the figure stopped
+  // growing before reaching it and the robot drove into people.
+  stopSize: 0.7,
   nearFrac: 0.75, // a person this fraction of stopSize tall is "close" (stop for walkers, no approach needed)
-  slowFrom: 0.45, // start slowing down at this size
+  slowFrom: 0.35, // start slowing down at this size
   minFwd: 0.4, // slowest forward speed, as a fraction of maxSpeed
   smooth: 0.5, // detection smoothing (1 = none)
   confirmFrames: 3, // consecutive detections before acting on a person
